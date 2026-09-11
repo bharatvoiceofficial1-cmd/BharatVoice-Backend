@@ -62,13 +62,13 @@ To connect your live GitHub Pages frontend to this backend, host it on Render fo
    * Click **Deploy Web Service**.
 
 3. **Copy your Live Backend URL:**
-   Render will give you a live URL like `https://bharatvoice-backend.onrender.com`.
+   Render will give you a live URL like `https://bharatvoice-backend-qvj1.onrender.com`.
    You then paste this URL into your frontend settings or default config!
 
 ---
 
 ## 🛡️ Security Features
 * **Zero Client Key Exposure:** Frontend never sees the API key.
-* **CORS Configured:** Accepts requests from your GitHub Pages domain (`palankit003.github.io`).
+* **CORS Configured:** Accepts requests from your GitHub Pages domain (`bharatvoiceofficial1-cmd.github.io`).
 * **Rate Limiting:** Built-in rate limiter (60 requests/minute per IP) prevents quota abuse.
 * **Vision & Photo Support:** Accepts payloads up to 10MB to support base64 study question photos.
