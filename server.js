@@ -5,6 +5,8 @@ const rateLimit = require('express-rate-limit');
 const { createClient } = require('@supabase/supabase-js');
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const Razorpay = require('razorpay');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,6 +14,25 @@ const JWT_SECRET = process.env.JWT_SECRET || '777f23cf97fdfa78f16a528dcdb1a5519a
 
 // Initialize Google OAuth client
 const googleClient = new OAuth2Client();
+
+// Initialize Razorpay client if configured
+let razorpay = null;
+const razorpayKeyId = process.env.RAZORPAY_KEY_ID ? process.env.RAZORPAY_KEY_ID.trim() : '';
+const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET ? process.env.RAZORPAY_KEY_SECRET.trim() : '';
+
+if (razorpayKeyId && razorpayKeySecret) {
+  try {
+    razorpay = new Razorpay({
+      key_id: razorpayKeyId,
+      key_secret: razorpayKeySecret
+    });
+    console.log('✓ Razorpay payment gateway client initialized.');
+  } catch (err) {
+    console.error('Failed to initialize Razorpay client:', err.message);
+  }
+} else {
+  console.warn('⚠️ Razorpay credentials not found in environment. Payment endpoints will prompt for setup.');
+}
 
 // Initialize Supabase client if configured
 let supabase = null;
@@ -83,6 +104,7 @@ app.get('/api/health', (req, res) => {
     time: new Date().toISOString(),
     hasApiKey: !!cleanKey,
     hasDatabase: !!supabase,
+    hasRazorpay: !!razorpay,
     defaultModel: process.env.DEFAULT_MODEL || 'openai/gpt-oss-20b'
   });
 });
@@ -286,7 +308,160 @@ app.get('/api/user/performance', authenticateUser, async (req, res) => {
 });
 
 // ==========================================
-// 5. CORE AI CHAT PROXY
+// 5. RAZORPAY PAYMENT GATEWAY
+// ==========================================
+const PLAN_CATALOG = {
+  shakti: { amount: 4900, name: 'Bharat Voice Shakti', durationDays: 30 },
+  mahashakti: { amount: 54900, name: 'Bharat Voice Maha Shakti', durationDays: 365 },
+  bharatpro: { amount: 9900, name: 'Bharat Voice Bharat Pro', durationDays: 30 },
+  bharatmax: { amount: 19900, name: 'Bharat Voice Bharat Max', durationDays: 30 },
+  scholarpro: { amount: 14900, name: 'Bharat Voice Scholar Pro', durationDays: 30 }
+};
+
+// 1. Create Razorpay Order
+app.post('/api/payment/create-order', authenticateUser, async (req, res) => {
+  if (!razorpay || !razorpayKeySecret) {
+    return res.status(503).json({
+      error: {
+        message: 'Payment gateway is not configured on the backend. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.'
+      }
+    });
+  }
+
+  const { planId } = req.body;
+  const selectedPlan = PLAN_CATALOG[planId];
+
+  if (!selectedPlan) {
+    return res.status(400).json({
+      error: {
+        message: `Invalid plan selected: "${planId}". Valid plans: ${Object.keys(PLAN_CATALOG).join(', ')}`
+      }
+    });
+  }
+
+  try {
+    const receiptId = `rcpt_${String(req.user.userId || 'usr').slice(0, 8)}_${Date.now()}`.slice(0, 40);
+    const options = {
+      amount: selectedPlan.amount, // amount in paise
+      currency: 'INR',
+      receipt: receiptId,
+      notes: {
+        userId: String(req.user.userId || ''),
+        userEmail: String(req.user.email || ''),
+        userName: String(req.user.name || ''),
+        planId: String(planId)
+      }
+    };
+
+    const order = await razorpay.orders.create(options);
+
+    res.json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      planId: planId,
+      planName: selectedPlan.name,
+      keyId: razorpayKeyId
+    });
+  } catch (err) {
+    console.error('Razorpay order creation error:', err);
+    res.status(500).json({
+      error: {
+        message: err.error?.description || err.message || 'Could not initiate Razorpay payment order.'
+      }
+    });
+  }
+});
+
+// 2. Verify Payment Signature & Activate Plan
+app.post('/api/payment/verify', authenticateUser, async (req, res) => {
+  if (!razorpayKeySecret) {
+    return res.status(503).json({
+      error: {
+        message: 'Payment gateway secret is not configured on the backend.'
+      }
+    });
+  }
+
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId } = req.body;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return res.status(400).json({
+      error: {
+        message: 'Missing payment details: razorpay_order_id, razorpay_payment_id, and razorpay_signature are all required.'
+      }
+    });
+  }
+
+  const validPlan = PLAN_CATALOG[planId] ? planId : 'shakti';
+
+  try {
+    // Cryptographically verify HMAC SHA-256 signature
+    const hmac = crypto.createHmac('sha256', razorpayKeySecret);
+    hmac.update(`${razorpay_order_id}|${razorpay_payment_id}`);
+    const expectedSignature = hmac.digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      console.warn(`Payment signature mismatch for user ${req.user.userId}: expected ${expectedSignature}, received ${razorpay_signature}`);
+      return res.status(400).json({
+        error: {
+          message: 'Payment signature verification failed. Transaction cannot be verified.'
+        }
+      });
+    }
+
+    // Update user's plan in Supabase if configured
+    if (supabase) {
+      const { error: userUpdateErr } = await supabase
+        .from('users')
+        .update({
+          plan: validPlan,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', req.user.userId);
+
+      if (userUpdateErr) {
+        console.error('Error updating user plan in Supabase:', userUpdateErr.message);
+      }
+
+      const selectedPlan = PLAN_CATALOG[validPlan];
+      const { error: payInsertErr } = await supabase
+        .from('payments')
+        .insert({
+          user_id: req.user.userId,
+          razorpay_order_id,
+          razorpay_payment_id,
+          amount: selectedPlan ? (selectedPlan.amount / 100) : 0,
+          currency: 'INR',
+          plan_id: validPlan,
+          status: 'captured'
+        });
+
+      if (payInsertErr) {
+        console.error('Error recording payment in Supabase:', payInsertErr.message);
+      }
+    }
+
+    console.log(`✓ Payment verified successfully! User ${req.user.userId} upgraded to ${validPlan}. Payment ID: ${razorpay_payment_id}`);
+
+    res.json({
+      status: 'success',
+      message: `Payment verified successfully! You are now subscribed to ${PLAN_CATALOG[validPlan]?.name || validPlan}.`,
+      plan: validPlan,
+      paymentId: razorpay_payment_id
+    });
+  } catch (err) {
+    console.error('Error verifying payment:', err);
+    res.status(500).json({
+      error: {
+        message: err.message || 'An error occurred during payment verification.'
+      }
+    });
+  }
+});
+
+// ==========================================
+// 6. CORE AI CHAT PROXY
 // ==========================================
 app.post('/api/chat', chatLimiter, async (req, res) => {
   const rawKey = process.env.GROQ_API_KEY || '';
@@ -384,6 +559,7 @@ app.listen(PORT, () => {
   console.log(` Health check: http://localhost:${PORT}/api/health`);
   console.log(` Chat proxy:   http://localhost:${PORT}/api/chat`);
   console.log(` Auth route:   http://localhost:${PORT}/api/auth/google`);
+  console.log(` Payments:     ${razorpay ? 'Ready (Razorpay)' : 'Waiting for RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET'}`);
   console.log(` Database:     ${supabase ? 'Connected (Supabase)' : 'Waiting for SUPABASE_URL'}`);
   console.log(`=========================================`);
 });

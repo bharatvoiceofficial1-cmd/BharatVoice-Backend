@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- Bharat Voice Database Schema for Supabase (PostgreSQL)
 -- ============================================================
 
@@ -51,7 +51,25 @@ CREATE TABLE IF NOT EXISTS public.student_performance (
 -- Index for querying test scores ordered by date
 CREATE INDEX IF NOT EXISTS idx_student_performance_user_date ON public.student_performance (user_id, test_date DESC);
 
+-- 4. PAYMENTS TABLE
+CREATE TABLE IF NOT EXISTS public.payments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    razorpay_order_id TEXT NOT NULL,
+    razorpay_payment_id TEXT UNIQUE NOT NULL,
+    amount NUMERIC NOT NULL,
+    currency TEXT DEFAULT 'INR',
+    plan_id TEXT NOT NULL,
+    status TEXT DEFAULT 'captured',
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- Index for querying payments by user and order
+CREATE INDEX IF NOT EXISTS idx_payments_user_id ON public.payments (user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_order_id ON public.payments (razorpay_order_id);
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.learner_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.student_performance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
