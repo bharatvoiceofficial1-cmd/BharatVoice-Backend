@@ -98,11 +98,13 @@ function authenticateUser(req, res, next) {
 app.get('/api/health', (req, res) => {
   const rawKey = process.env.GROQ_API_KEY || '';
   const cleanKey = rawKey.trim().replace(/^["']|["']$/g, '');
+  const nvKey = process.env.NVIDIA_API_KEY || '';
   res.json({
     status: 'ok',
     service: 'Bharat Voice AI Gateway',
     time: new Date().toISOString(),
     hasApiKey: !!cleanKey,
+    hasImageGen: !!nvKey.trim(),
     hasDatabase: !!supabase,
     hasRazorpay: !!razorpay,
     defaultModel: process.env.DEFAULT_MODEL || 'openai/gpt-oss-20b'
@@ -548,6 +550,126 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   }
 });
 
+// ==========================================
+// 7. HIGH-RESOLUTION AI IMAGE GENERATION (NVIDIA FLUX)
+// ==========================================
+app.post('/api/generate-image', async (req, res) => {
+  const { prompt, style = 'auto', ratio = 'square' } = req.body;
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(400).json({ error: { message: 'A text "prompt" is required for image generation.' } });
+  }
+
+  const rawKey = process.env.NVIDIA_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^["']|["']$/g, '');
+
+  if (!apiKey) {
+    return res.status(500).json({
+      error: { message: 'Server error: NVIDIA_API_KEY is not configured on the backend.' }
+    });
+  }
+
+  const raw = prompt.trim();
+  let detectedStyle = style;
+  if (detectedStyle === 'auto') {
+    if (/concept\s*map|mind\s*map|flowchart|infographic|diagram|roadmap|workflow|schematic|architecture/i.test(raw)) {
+      detectedStyle = 'conceptmap';
+    } else if (/atom|molecule|electron|nucleus|cell|dna|photosynthesis|organ|anatomy|circuit|solar\s*system|planet|physics|chemistry|biology|science|schematic/i.test(raw)) {
+      detectedStyle = 'diagram';
+    } else if (/photo|photograph|portrait|real life|realistic|person|landscape|dslr/i.test(raw)) {
+      detectedStyle = 'photo';
+    } else if (/3d|isometric|blender|render/i.test(raw)) {
+      detectedStyle = '3d';
+    } else if (/anime|manga|cartoon|sketch|art|digital art/i.test(raw)) {
+      detectedStyle = 'art';
+    } else {
+      detectedStyle = 'diagram';
+    }
+  }
+
+  let styleSuffix = '';
+  let appliedRatio = ratio;
+
+  if (detectedStyle === 'conceptmap') {
+    styleSuffix = ', clear educational concept map infographic, structured connected nodes, modern minimalist vector typography, high visual contrast, elegant layout, academic poster, ultra-sharp 8k uhd';
+    if (appliedRatio === 'auto' || appliedRatio === 'square') appliedRatio = 'landscape';
+  } else if (detectedStyle === 'diagram') {
+    styleSuffix = ', accurate 3d educational scientific illustration, clear labeled parts, clean dark background, vivid colors, sharp focus, 8k uhd';
+    if (appliedRatio === 'auto') appliedRatio = 'landscape';
+  } else if (detectedStyle === 'photo') {
+    styleSuffix = ', photorealistic, masterwork photography, 8k uhd, cinematic lighting, sharp focus, high dynamic range, breathtaking detail';
+  } else if (detectedStyle === 'art') {
+    styleSuffix = ', stunning digital art, vibrant color grading, intricate details, artistic masterpiece, trending on artstation, 8k';
+  } else if (detectedStyle === '3d') {
+    styleSuffix = ', 3d isometric render, blender 3d style, octane render, soft ambient shadows, modern clean 3d illustration, 8k';
+  } else {
+    styleSuffix = ', high quality, ultra detailed, sharp focus, clean composition, 8k';
+  }
+
+  // Map ratio to NVIDIA FLUX supported aspect ratios:
+  // Supported: '1:1', '4:3', '3:4', '3:2', '2:3', '21:9'
+  let nvRatio = '1:1';
+  let width = 1024, height = 1024;
+  if (appliedRatio === 'landscape' || appliedRatio === '16:9' || appliedRatio === '4:3') {
+    nvRatio = '4:3';
+    width = 1152; height = 864;
+  } else if (appliedRatio === 'portrait' || appliedRatio === '9:16' || appliedRatio === '3:4') {
+    nvRatio = '3:4';
+    width = 864; height = 1152;
+  } else if (appliedRatio === 'wide' || appliedRatio === '21:9') {
+    nvRatio = '21:9';
+    width = 1344; height = 576;
+  }
+
+  const finalPrompt = raw + styleSuffix;
+
+  try {
+    const nvResponse = await fetch('https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.2-klein-4b', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        prompt: finalPrompt,
+        aspect_ratio: nvRatio
+      })
+    });
+
+    const data = await nvResponse.json();
+
+    if (!nvResponse.ok) {
+      const errMsg = (typeof data?.detail === 'string' ? data.detail : (data?.detail?.[0]?.msg || data?.error?.message)) || `NVIDIA API error HTTP ${nvResponse.status}`;
+      console.error('NVIDIA Image Generation Error:', errMsg);
+      return res.status(nvResponse.status).json({ error: { message: errMsg } });
+    }
+
+    const base64Img = data?.artifacts?.[0]?.base64 || data?.b64_json;
+    if (!base64Img) {
+      return res.status(502).json({ error: { message: 'No image artifact returned by NVIDIA generation model.' } });
+    }
+
+    const dataUrl = `data:image/jpeg;base64,${base64Img}`;
+    res.json({
+      status: 'success',
+      image: dataUrl,
+      meta: {
+        model: 'black-forest-labs/flux.2-klein-4b (NVIDIA NIM)',
+        style: detectedStyle,
+        ratio: appliedRatio,
+        aspect_ratio: nvRatio,
+        width,
+        height
+      }
+    });
+  } catch (err) {
+    console.error('Image generation proxy error:', err);
+    res.status(502).json({
+      error: { message: 'Gateway error: unable to reach NVIDIA Image Generation server.' }
+    });
+  }
+});
+
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
@@ -558,6 +680,7 @@ app.listen(PORT, () => {
   console.log(` Bharat Voice AI Backend running on port ${PORT}`);
   console.log(` Health check: http://localhost:${PORT}/api/health`);
   console.log(` Chat proxy:   http://localhost:${PORT}/api/chat`);
+  console.log(` Image Gen:    ${process.env.NVIDIA_API_KEY ? 'Ready (NVIDIA FLUX.2 Klein 4B)' : 'Waiting for NVIDIA_API_KEY'}`);
   console.log(` Auth route:   http://localhost:${PORT}/api/auth/google`);
   console.log(` Payments:     ${razorpay ? 'Ready (Razorpay)' : 'Waiting for RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET'}`);
   console.log(` Database:     ${supabase ? 'Connected (Supabase)' : 'Waiting for SUPABASE_URL'}`);
