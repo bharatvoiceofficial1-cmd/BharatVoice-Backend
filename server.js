@@ -98,13 +98,13 @@ function authenticateUser(req, res, next) {
 app.get('/api/health', (req, res) => {
   const rawKey = process.env.GROQ_API_KEY || '';
   const cleanKey = rawKey.trim().replace(/^["']|["']$/g, '');
-  const nvKey = process.env.NVIDIA_API_KEY || '';
+  const nvKey = (process.env.NVIDIA_API_KEY || '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').trim();
   res.json({
     status: 'ok',
     service: 'Bharat Voice AI Gateway',
     time: new Date().toISOString(),
     hasApiKey: !!cleanKey,
-    hasImageGen: !!nvKey.trim(),
+    hasImageGen: !!nvKey,
     hasDatabase: !!supabase,
     hasRazorpay: !!razorpay,
     defaultModel: process.env.DEFAULT_MODEL || 'openai/gpt-oss-20b'
