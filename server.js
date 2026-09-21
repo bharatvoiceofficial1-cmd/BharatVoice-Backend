@@ -559,7 +559,7 @@ app.post('/api/generate-image', async (req, res) => {
     return res.status(400).json({ error: { message: 'A text "prompt" is required for image generation.' } });
   }
 
-  const rawKey = process.env.NVIDIA_API_KEY || '';
+  const rawKey = process.env.NVIDIA_API_KEY || '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';
   const apiKey = rawKey.trim().replace(/^["']|["']$/g, '');
 
   if (!apiKey) {
