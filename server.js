@@ -551,6 +551,55 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 });
 
 // ==========================================
+// ==========================================
+// 8. ALLROUNDER CHAT PROXY (Experiential Labs / fallback Groq)
+// ==========================================
+app.post('/api/allrounder', async (req, res) => {
+  const { messages, model = 'gpt-4o-mini', stream = true, max_tokens = 4096, temperature = 0.7 } = req.body;
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: { message: 'messages array required' } });
+  }
+
+  const AR_KEY  = (process.env.ALLROUNDER_API_KEY || '').trim();
+  const GROQ_KEY= (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+
+  const useGroq = !AR_KEY;
+  const url = useGroq ? 'https://api.groq.com/openai/v1/chat/completions'
+                      : 'https://api.experientiallabs.ai/v1/chat/completions';
+  const key = useGroq ? GROQ_KEY : AR_KEY;
+  const mdl = useGroq ? 'llama-3.3-70b-versatile' : model;
+
+  async function tryFetch(u, k, m) {
+    return fetch(u, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${k}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: m, messages, stream, max_tokens, temperature })
+    });
+  }
+
+  try {
+    let upstream = await tryFetch(url, key, mdl);
+
+    // If Exp Labs key fails, fall back to Groq
+    if (!upstream.ok && !useGroq && GROQ_KEY) {
+      upstream = await tryFetch(
+        'https://api.groq.com/openai/v1/chat/completions', GROQ_KEY, 'llama-3.3-70b-versatile'
+      );
+    }
+
+    if (!upstream.ok) {
+      const err = await upstream.json().catch(() => ({}));
+      return res.status(upstream.status).json(err);
+    }
+
+    res.setHeader('Content-Type', stream ? 'text/event-stream' : 'application/json');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    upstream.body.pipe(res);
+  } catch (err) {
+    res.status(502).json({ error: { message: 'Allrounder error: ' + err.message } });
+  }
+});
 // 7. HIGH-RESOLUTION AI IMAGE GENERATION (NVIDIA FLUX)
 // ==========================================
 app.post('/api/generate-image', async (req, res) => {
