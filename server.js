@@ -510,7 +510,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
         model: selectedModel,
         messages: messages,
         temperature: typeof temperature === 'number' ? temperature : 0.7,
-        max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 8192) : 4096
+        max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 16384) : 8192
       })
     });
 
@@ -532,7 +532,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
               model: fallbackModel,
               messages: messages,
               temperature: typeof temperature === 'number' ? temperature : 0.7,
-              max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 8192) : 4096
+              max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 16384) : 8192
             })
           });
           const retryData = await retryResponse.json();
@@ -564,7 +564,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 // 8. ALLROUNDER CHAT PROXY (Experiential Labs / fallback Groq)
 // ==========================================
 app.post('/api/allrounder', async (req, res) => {
-  const { messages, model = 'gpt-4o-mini', stream = true, max_tokens = 8192, temperature = 0.6, top_p = 0.95 } = req.body;
+  const { messages, model = 'gpt-4o-mini', stream = true, max_tokens = 16384, temperature = 0.6, top_p = 0.95 } = req.body;
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: { message: 'messages array required' } });
   }
