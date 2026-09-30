@@ -313,12 +313,21 @@ app.get('/api/user/performance', authenticateUser, async (req, res) => {
 // 5. RAZORPAY PAYMENT GATEWAY
 // ==========================================
 const PLAN_CATALOG = {
-  shakti: { amount: 4900, name: 'Bharat Voice Shakti', durationDays: 30 },
-  mahashakti: { amount: 54900, name: 'Bharat Voice Maha Shakti', durationDays: 365 },
-  bharatpro: { amount: 9900, name: 'Bharat Voice Bharat Pro', durationDays: 30 },
-  bharatmax: { amount: 19900, name: 'Bharat Voice Bharat Max', durationDays: 30 },
-  scholarpro: { amount: 14900, name: 'Bharat Voice Scholar Pro', durationDays: 30 }
+  shakti: { amount: 3185, originalAmount: 4900, discountPercent: 35, name: 'Bharat Voice Shakti (Navratri Special - 35% OFF)', durationDays: 30 },
+  mahashakti: { amount: 35685, originalAmount: 54900, discountPercent: 35, name: 'Bharat Voice Maha Shakti (Navratri Special - 35% OFF)', durationDays: 365 },
+  bharatpro: { amount: 6435, originalAmount: 9900, discountPercent: 35, name: 'Bharat Voice Bharat Pro (Navratri Special - 35% OFF)', durationDays: 30 },
+  bharatmax: { amount: 12935, originalAmount: 19900, discountPercent: 35, name: 'Bharat Voice Bharat Max (Navratri Special - 35% OFF)', durationDays: 30 },
+  scholarpro: { amount: 9685, originalAmount: 14900, discountPercent: 35, name: 'Bharat Voice Scholar Pro (Navratri Special - 35% OFF)', durationDays: 30 }
 };
+
+// 0. Get Active Plans with Navratri Special Pricing
+app.get('/api/payment/plans', (req, res) => {
+  res.json({
+    promotion: 'Navratri Special Offer — Flat 35% OFF',
+    discountPercent: 35,
+    plans: PLAN_CATALOG
+  });
+});
 
 // 1. Create Razorpay Order
 app.post('/api/payment/create-order', authenticateUser, async (req, res) => {
