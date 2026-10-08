@@ -7,6 +7,7 @@ const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const Razorpay = require('razorpay');
+const { EdgeTTS } = require('edge-tts-universal');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -109,6 +110,8 @@ app.get('/api/health', (req, res) => {
     hasGroq: !!hasGroq,
     hasGemini: !!geminiKey,
     hasImageGen: !!nvKey,
+    hasTTS: true,
+    voiceProfile: 'en-IN-PrabhatNeural (Natural Confident Teenage Male - Class 8 Student Tone)',
     hasDatabase: !!supabase,
     hasRazorpay: !!razorpay,
     smartRouting: 'Gemini 3.8 Flash (Intense Coding & Deep Learning) + Groq (Normal Fast) + NVIDIA FLUX (Images)',
@@ -900,6 +903,57 @@ app.post('/api/generate-image', async (req, res) => {
   }
 });
 
+// ==========================================
+// 10. NEURAL TEXT-TO-SPEECH (TTS) PROXY
+// Teen Indian Male Voice (Class 8 Student: Prabhat / Madhur)
+// ==========================================
+app.post('/api/tts', async (req, res) => {
+  try {
+    const { text, rate = '+4%', pitch = '+8Hz', voice } = req.body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ error: { message: 'text string is required' } });
+    }
+
+    // Clean text for speech synthesis (strip code fences, markdown, raw formulas, emojis)
+    let clean = text
+      .replace(/```[\s\S]*?```/g, ' code block omitted. ')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\$\$[\s\S]*?\$\$/g, ' formula omitted. ')
+      .replace(/\$([^\$]+)\$/g, '$1')
+      .replace(/[*#_~]/g, '')
+      .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/gu, '')
+      .trim();
+
+    if (!clean) clean = 'Hello! I am Bharat Voice.';
+    // Cap length to avoid excessive synthesis delays
+    if (clean.length > 3000) clean = clean.slice(0, 3000) + '...';
+
+    // Auto-select voice based on language detection
+    const isDevanagari = /[\u0900-\u097F]/.test(clean);
+    const chosenVoice = voice || (isDevanagari ? 'hi-IN-MadhurNeural' : 'en-IN-PrabhatNeural');
+
+    const tts = new EdgeTTS(clean, chosenVoice, {
+      rate: rate || '+4%',
+      pitch: pitch || '+8Hz'
+    });
+
+    const result = await tts.synthesize();
+    const arrayBuf = await result.audio.arrayBuffer();
+    const audioBuf = Buffer.from(arrayBuf);
+
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': audioBuf.length,
+      'Cache-Control': 'public, max-age=86400',
+      'X-Voice-Used': chosenVoice
+    });
+    res.send(audioBuf);
+  } catch (err) {
+    console.error('TTS synthesis error:', err.message);
+    res.status(500).json({ error: { message: 'TTS generation failed: ' + err.message } });
+  }
+});
+
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
@@ -910,6 +964,7 @@ app.listen(PORT, () => {
   console.log(` Bharat Voice AI Backend running on port ${PORT}`);
   console.log(` Health check: http://localhost:${PORT}/api/health`);
   console.log(` Chat proxy:   http://localhost:${PORT}/api/chat`);
+  console.log(` Neural TTS:   Ready (Teen Indian Male Voice · en-IN-Prabhat / hi-IN-Madhur)`);
   console.log(` Image Gen:    ${process.env.NVIDIA_API_KEY ? 'Ready (NVIDIA FLUX.2 Klein 4B)' : 'Waiting for NVIDIA_API_KEY'}`);
   console.log(` Auth route:   http://localhost:${PORT}/api/auth/google`);
   console.log(` Payments:     ${razorpay ? 'Ready (Razorpay)' : 'Waiting for RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET'}`);
