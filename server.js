@@ -98,15 +98,20 @@ function authenticateUser(req, res, next) {
 app.get('/api/health', (req, res) => {
   const rawKey = process.env.GROQ_API_KEY || '';
   const cleanKey = rawKey.trim().replace(/^["']|["']$/g, '');
+  const hasGroq = cleanKey && cleanKey !== 'your_groq_api_key';
+  const geminiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
   const nvKey = (process.env.NVIDIA_API_KEY || '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').trim();
   res.json({
     status: 'ok',
     service: 'Bharat Voice AI Gateway',
     time: new Date().toISOString(),
-    hasApiKey: !!cleanKey,
+    hasApiKey: !!(hasGroq || geminiKey),
+    hasGroq: !!hasGroq,
+    hasGemini: !!geminiKey,
     hasImageGen: !!nvKey,
     hasDatabase: !!supabase,
     hasRazorpay: !!razorpay,
+    smartRouting: 'Gemini 3.8 Flash (Intense Coding & Deep Learning) + Groq (Normal Fast) + NVIDIA FLUX (Images)',
     defaultModel: process.env.DEFAULT_MODEL || 'openai/gpt-oss-20b'
   });
 });
@@ -472,21 +477,207 @@ app.post('/api/payment/verify', authenticateUser, async (req, res) => {
 });
 
 // ==========================================
-// 6. CORE AI CHAT PROXY
+// 6. SMART AI ROUTER HELPERS (GEMINI + GROQ)
+// ==========================================
+
+// Intent detector: checks if prompt requires intense coding or deep learning
+function isCodingOrDeepLearning(messages) {
+  if (!messages || !Array.isArray(messages) || messages.length === 0) return false;
+  const userTexts = messages
+    .filter(m => m && (m.role === 'user' || m.role === 'system'))
+    .map(m => {
+      if (typeof m.content === 'string') return m.content;
+      if (Array.isArray(m.content)) {
+        return m.content.map(p => (p.text || '')).join(' ');
+      }
+      return '';
+    })
+    .join('\n');
+
+  // Intense coding patterns
+  const codingRegex = /\b(code|coding|programmer|programming|script|algorithm|function|def\s+\w+|class\s+\w+|import\s+\w+|console\.log|var\s+|const\s+|let\s+|python|javascript|typescript|html|css|c\+\+|cpp|java|golang|rust|php|swift|kotlin|sql|database|postgres|mysql|sqlite|react|node|express|nextjs|vue|angular|bug|debug|debugger|error|exception|traceback|syntaxerror|compile|compiler|runtime|git|github|api|rest|endpoint|json|regex|array|hashmap|linkedlist|binary\s*tree|recursion|dynamic\s*programming|leetcode|hackerrank|fullstack|backend|frontend|web\s*app|website|software)\b|```/i;
+
+  // Intense learning, deep derivation, proofs, and concept mastery patterns
+  const deepLearningRegex = /\b(deep\s*dive|in-depth|derivation|derive|mathematical\s*proof|prove\s+that|step-by-step\s*(derivation|proof|solution)|comprehensive\s*(syllabus|lesson\s*plan|analysis)|mechanisms?\s+of|reaction\s+mechanism|quantum|thermodynamics|organic\s+chemistry|calculus|differential\s*equation|integration\s+by\s+parts|eigenvalues?|concept\s*map|knowledge\s*graph|sample\s*paper|marking\s*scheme)\b/i;
+
+  return codingRegex.test(userTexts) || deepLearningRegex.test(userTexts);
+}
+
+// Call Google Gemini 3.8 Flash via Generative Language API
+async function callGemini(messages, geminiKey, temperature, maxTokens) {
+  let systemInstructionText = '';
+  const contents = [];
+
+  for (const m of messages) {
+    if (!m) continue;
+    if (m.role === 'system') {
+      systemInstructionText += (systemInstructionText ? '\n\n' : '') + (typeof m.content === 'string' ? m.content : JSON.stringify(m.content));
+    } else {
+      const geminiRole = m.role === 'assistant' ? 'model' : 'user';
+      const parts = [];
+      if (typeof m.content === 'string') {
+        if (m.content.trim()) parts.push({ text: m.content });
+      } else if (Array.isArray(m.content)) {
+        for (const part of m.content) {
+          if (part.type === 'text' && part.text) {
+            parts.push({ text: part.text });
+          } else if (part.type === 'image_url' && part.image_url?.url) {
+            const url = part.image_url.url;
+            const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
+            if (match) {
+              parts.push({
+                inlineData: {
+                  mimeType: match[1],
+                  data: match[2]
+                }
+              });
+            }
+          }
+        }
+      }
+      if (parts.length > 0) {
+        contents.push({ role: geminiRole, parts });
+      }
+    }
+  }
+
+  if (contents.length === 0) {
+    contents.push({ role: 'user', parts: [{ text: 'Hello' }] });
+  }
+
+  const payload = {
+    contents,
+    generationConfig: {
+      temperature: typeof temperature === 'number' ? temperature : 0.6,
+      maxOutputTokens: typeof maxTokens === 'number' ? Math.min(maxTokens, 16384) : 8192
+    }
+  };
+
+  if (systemInstructionText) {
+    payload.systemInstruction = {
+      parts: [{ text: systemInstructionText }]
+    };
+  }
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || `Gemini API error HTTP ${response.status}`);
+  }
+
+  const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return {
+    id: 'chatcmpl-gemini-' + Date.now(),
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: 'gemini-3.8-flash',
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: replyText
+        },
+        finish_reason: 'stop'
+      }
+    ],
+    usage: data.usageMetadata || {},
+    meta: {
+      provider: 'gemini',
+      model: 'gemini-3.8-flash',
+      engine: 'Google Gemini 3.8 Flash',
+      reason: 'Intense Coding & Deep Learning'
+    }
+  };
+}
+
+// Call Groq API for ultra-fast normal conversation
+async function callGroq(messages, groqKey, selectedModel, temperature, maxTokens) {
+  const modelToUse = selectedModel || process.env.DEFAULT_MODEL || 'llama-3.3-70b-versatile';
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${groqKey}`,
+      'User-Agent': 'BharatVoiceBackend/1.0'
+    },
+    body: JSON.stringify({
+      model: modelToUse,
+      messages: messages,
+      temperature: typeof temperature === 'number' ? temperature : 0.7,
+      max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 16384) : 8192
+    })
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    if (response.status === 404 || response.status === 400) {
+      const fallbackModel = 'llama-3.3-70b-versatile';
+      if (modelToUse !== fallbackModel) {
+        const retryRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${groqKey}`,
+            'User-Agent': 'BharatVoiceBackend/1.0'
+          },
+          body: JSON.stringify({
+            model: fallbackModel,
+            messages: messages,
+            temperature: typeof temperature === 'number' ? temperature : 0.7,
+            max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 16384) : 8192
+          })
+        });
+        const retryData = await retryRes.json();
+        if (retryRes.ok) {
+          retryData.meta = {
+            provider: 'groq',
+            model: fallbackModel,
+            engine: 'Groq High-Speed Engine',
+            reason: 'Normal / Fast Conversational'
+          };
+          return retryData;
+        }
+      }
+    }
+    throw new Error(data.error?.message || `Groq API error HTTP ${response.status}`);
+  }
+
+  data.meta = {
+    provider: 'groq',
+    model: modelToUse,
+    engine: 'Groq High-Speed Engine',
+    reason: 'Normal / Fast Conversational'
+  };
+  return data;
+}
+
+// ==========================================
+// 7. CORE AI CHAT PROXY (INTELLIGENT AUTO-ROUTING)
 // ==========================================
 app.post('/api/chat', chatLimiter, async (req, res) => {
-  const rawKey = process.env.GROQ_API_KEY || '';
-  const apiKey = rawKey.trim().replace(/^["']|["']$/g, '');
+  const rawGroqKey = process.env.GROQ_API_KEY || '';
+  const groqKey = rawGroqKey.trim().replace(/^["']|["']$/g, '');
+  const hasGroq = groqKey && groqKey !== 'your_groq_api_key';
 
-  if (!apiKey) {
+  const rawGeminiKey = process.env.GEMINI_API_KEY || '';
+  const geminiKey = rawGeminiKey.trim().replace(/^["']|["']$/g, '');
+
+  if (!hasGroq && !geminiKey) {
     return res.status(500).json({
       error: {
-        message: 'Server error: GROQ_API_KEY is not configured on the backend.'
+        message: 'Server error: Neither GROQ_API_KEY nor GEMINI_API_KEY is configured on the backend.'
       }
     });
   }
 
-  const { messages, model, temperature, max_tokens } = req.body;
+  const { messages, model, temperature, max_tokens, provider } = req.body;
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({
@@ -496,118 +687,99 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     });
   }
 
-  const selectedModel = model || process.env.DEFAULT_MODEL || 'openai/gpt-oss-20b';
+  // Automatic routing:
+  // If user wants intense coding or deep learning -> shift to Gemini 3.8 Flash
+  // If normal conversational usage -> Groq API
+  const isCodeOrStudy = isCodingOrDeepLearning(messages);
+  const routeToGemini = (provider === 'gemini') || (provider !== 'groq' && isCodeOrStudy);
 
-  try {
-    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'User-Agent': 'BharatVoiceBackend/1.0'
-      },
-      body: JSON.stringify({
-        model: selectedModel,
-        messages: messages,
-        temperature: typeof temperature === 'number' ? temperature : 0.7,
-        max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 16384) : 8192
-      })
-    });
-
-    const responseData = await groqResponse.json();
-
-    if (!groqResponse.ok) {
-      if (groqResponse.status === 404 || groqResponse.status === 400) {
-        const fallbackModel = process.env.DEFAULT_MODEL || 'openai/gpt-oss-20b';
-        if (selectedModel !== fallbackModel) {
-          console.warn(`Model ${selectedModel} failed (${groqResponse.status}). Retrying with ${fallbackModel}...`);
-          const retryResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`,
-              'User-Agent': 'BharatVoiceBackend/1.0'
-            },
-            body: JSON.stringify({
-              model: fallbackModel,
-              messages: messages,
-              temperature: typeof temperature === 'number' ? temperature : 0.7,
-              max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 16384) : 8192
-            })
-          });
-          const retryData = await retryResponse.json();
-          if (retryResponse.ok) {
-            return res.json(retryData);
-          }
+  if (routeToGemini && geminiKey) {
+    try {
+      const result = await callGemini(messages, geminiKey, temperature, max_tokens);
+      return res.json(result);
+    } catch (geminiErr) {
+      console.warn('Gemini 3.8 Flash failed, attempting Groq fallback:', geminiErr.message);
+      if (hasGroq) {
+        try {
+          const fallbackResult = await callGroq(messages, groqKey, 'llama-3.3-70b-versatile', temperature, max_tokens);
+          fallbackResult.meta = fallbackResult.meta || {};
+          fallbackResult.meta.fallback = true;
+          fallbackResult.meta.fallbackFrom = 'gemini';
+          return res.json(fallbackResult);
+        } catch (groqErr) {
+          console.error('Groq fallback error:', groqErr.message);
         }
       }
-
-      const errMsg = responseData.error?.message || 'Error communicating with Groq upstream API.';
-      return res.status(groqResponse.status).json({
-        error: { message: errMsg }
-      });
+      return res.status(502).json({ error: { message: 'Gemini service error: ' + geminiErr.message } });
     }
+  }
 
-    res.json(responseData);
-  } catch (err) {
-    console.error('Proxy request failed:', err);
-    res.status(502).json({
-      error: {
-        message: 'Gateway error: unable to reach Groq AI server. Please check your network connection.'
+  // Normal uses: route to Groq for maximum speed
+  if (hasGroq) {
+    try {
+      const result = await callGroq(messages, groqKey, model, temperature, max_tokens);
+      return res.json(result);
+    } catch (groqErr) {
+      console.warn('Groq failed, attempting Gemini fallback:', groqErr.message);
+      if (geminiKey) {
+        try {
+          const fallbackResult = await callGemini(messages, geminiKey, temperature, max_tokens);
+          fallbackResult.meta = fallbackResult.meta || {};
+          fallbackResult.meta.fallback = true;
+          fallbackResult.meta.fallbackFrom = 'groq';
+          return res.json(fallbackResult);
+        } catch (geminiFallbackErr) {
+          console.error('Gemini fallback error:', geminiFallbackErr.message);
+        }
       }
-    });
+      return res.status(502).json({ error: { message: 'Groq service error: ' + groqErr.message } });
+    }
+  }
+
+  // If Groq key not configured, seamlessly use Gemini for all tasks
+  if (geminiKey) {
+    try {
+      const result = await callGemini(messages, geminiKey, temperature, max_tokens);
+      return res.json(result);
+    } catch (err) {
+      return res.status(502).json({ error: { message: 'Gemini error: ' + err.message } });
+    }
   }
 });
 
 // ==========================================
-// ==========================================
-// 8. ALLROUNDER CHAT PROXY (Experiential Labs / fallback Groq)
+// 8. UNIFIED ALLROUNDER / CODING PROXY (GEMINI 3.8 FLASH + GROQ)
 // ==========================================
 app.post('/api/allrounder', async (req, res) => {
-  const { messages, model = 'gpt-4o-mini', stream = true, max_tokens = 16384, temperature = 0.6, top_p = 0.95 } = req.body;
+  const { messages, max_tokens = 16384, temperature = 0.6 } = req.body;
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: { message: 'messages array required' } });
   }
 
-  const AR_KEY  = (process.env.ALLROUNDER_API_KEY || '').trim();
-  const GROQ_KEY= (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const rawGeminiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const rawGroqKey = (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const hasGroq = rawGroqKey && rawGroqKey !== 'your_groq_api_key';
 
-  const useGroq = !AR_KEY;
-  const url = useGroq ? 'https://api.groq.com/openai/v1/chat/completions'
-                      : 'https://api.experientiallabs.ai/v1/chat/completions';
-  const key = useGroq ? GROQ_KEY : AR_KEY;
-  const mdl = useGroq ? 'llama-3.3-70b-versatile' : model;
-
-  async function tryFetch(u, k, m) {
-    return fetch(u, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${k}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: m, messages, stream, max_tokens, temperature })
-    });
+  // For allrounder intense coding/project tasks, prefer Gemini 3.8 Flash
+  if (rawGeminiKey) {
+    try {
+      const result = await callGemini(messages, rawGeminiKey, temperature, max_tokens);
+      return res.json(result);
+    } catch (geminiErr) {
+      console.warn('Allrounder Gemini failed, falling back to Groq:', geminiErr.message);
+    }
   }
 
-  try {
-    let upstream = await tryFetch(url, key, mdl);
-
-    // If Exp Labs key fails, fall back to Groq
-    if (!upstream.ok && !useGroq && GROQ_KEY) {
-      upstream = await tryFetch(
-        'https://api.groq.com/openai/v1/chat/completions', GROQ_KEY, 'llama-3.3-70b-versatile'
-      );
+  if (hasGroq) {
+    try {
+      const result = await callGroq(messages, rawGroqKey, 'llama-3.3-70b-versatile', temperature, max_tokens);
+      return res.json(result);
+    } catch (groqErr) {
+      return res.status(502).json({ error: { message: 'Allrounder Groq error: ' + groqErr.message } });
     }
-
-    if (!upstream.ok) {
-      const err = await upstream.json().catch(() => ({}));
-      return res.status(upstream.status).json(err);
-    }
-
-    res.setHeader('Content-Type', stream ? 'text/event-stream' : 'application/json');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('X-Accel-Buffering', 'no');
-    upstream.body.pipe(res);
-  } catch (err) {
-    res.status(502).json({ error: { message: 'Allrounder error: ' + err.message } });
   }
+
+  return res.status(500).json({ error: { message: 'No AI key available for Allrounder proxy.' } });
 });
 // 7. HIGH-RESOLUTION AI IMAGE GENERATION (NVIDIA FLUX)
 // ==========================================
