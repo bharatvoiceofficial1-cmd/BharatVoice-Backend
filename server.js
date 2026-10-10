@@ -562,42 +562,64 @@ async function callGemini(messages, geminiKey, temperature, maxTokens) {
     };
   }
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`;
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  const candidateModels = [
+    'gemini-flash-lite-latest',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.8-flash'
+  ];
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error?.message || `Gemini API error HTTP ${response.status}`);
+  let lastError = null;
+  for (const modelName of candidateModels) {
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        lastError = new Error(data.error?.message || `Gemini API error HTTP ${response.status} on model ${modelName}`);
+        continue;
+      }
+
+      const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (!replyText) {
+        continue;
+      }
+
+      return {
+        id: 'chatcmpl-gemini-' + Date.now(),
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: modelName,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: replyText
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: data.usageMetadata || {},
+        meta: {
+          provider: 'gemini',
+          model: modelName,
+          engine: `Google ${modelName}`,
+          reason: 'Dynamic Adaptive Reasoning'
+        }
+      };
+    } catch (err) {
+      lastError = err;
+    }
   }
 
-  const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return {
-    id: 'chatcmpl-gemini-' + Date.now(),
-    object: 'chat.completion',
-    created: Math.floor(Date.now() / 1000),
-    model: 'gemini-3.8-flash',
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: replyText
-        },
-        finish_reason: 'stop'
-      }
-    ],
-    usage: data.usageMetadata || {},
-    meta: {
-      provider: 'gemini',
-      model: 'gemini-3.8-flash',
-      engine: 'Google Gemini 3.8 Flash',
-      reason: 'Intense Coding & Deep Learning'
-    }
-  };
+  throw lastError || new Error('All Gemini candidate models failed.');
 }
 
 // Call Groq API for ultra-fast normal conversation
