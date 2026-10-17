@@ -98,10 +98,10 @@ function authenticateUser(req, res, next) {
 // ==========================================
 app.get('/api/health', (req, res) => {
   const rawKey = process.env.GROQ_API_KEY || '';
-  const cleanKey = rawKey.trim().replace(/^["']|["']$/g, '');
+  const cleanKey = rawKey.trim().replace(/^['"]|['"]$/g, '');
   const hasGroq = cleanKey && cleanKey !== 'your_groq_api_key';
-  const geminiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-  const nvKey = (process.env.NVIDIA_API_KEY || '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').trim();
+  const geminiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
+  const nvKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
   res.json({
     status: 'ok',
     service: 'Bharat Voice AI Gateway',
@@ -498,10 +498,10 @@ function isCodingOrDeepLearning(messages) {
     .join('\n');
 
   // Intense coding patterns
-  const codingRegex = /\b(code|coding|programmer|programming|script|algorithm|function|def\s+\w+|class\s+\w+|import\s+\w+|console\.log|var\s+|const\s+|let\s+|python|javascript|typescript|html|css|c\+\+|cpp|java|golang|rust|php|swift|kotlin|sql|database|postgres|mysql|sqlite|react|node|express|nextjs|vue|angular|bug|debug|debugger|error|exception|traceback|syntaxerror|compile|compiler|runtime|git|github|api|rest|endpoint|json|regex|array|hashmap|linkedlist|binary\s*tree|recursion|dynamic\s*programming|leetcode|hackerrank|fullstack|backend|frontend|web\s*app|website|software)\b|```/i;
+  const codingRegex = /\b(code|coding|programmer|programming|script|algorithm|function|def\s+\w+|class\s+\w+|import\s+\w+|console\.log|var\s+|const\s+|let\s+|python|javascript|typescript|html|css|c\+\+|java|react|node|api|database|sql|bug|debug|fix)/i;
 
   // Intense learning, deep derivation, proofs, and concept mastery patterns
-  const deepLearningRegex = /\b(deep\s*dive|in-depth|derivation|derive|mathematical\s*proof|prove\s+that|step-by-step\s*(derivation|proof|solution)|comprehensive\s*(syllabus|lesson\s*plan|analysis)|mechanisms?\s+of|reaction\s+mechanism|quantum|thermodynamics|organic\s+chemistry|calculus|differential\s*equation|integration\s+by\s+parts|eigenvalues?|concept\s*map|knowledge\s*graph|sample\s*paper|marking\s*scheme)\b/i;
+  const deepLearningRegex = /\b(deep\s*dive|in-depth|derivation|derive|mathematical\s*proof|prove\s+that|step-by-step\s*(derivation|proof|solution)|comprehensive\s*(syllabus|lesson\s*plan|analysis)|explain\s+why|compare\s+and\s+contrast)/i;
 
   return codingRegex.test(userTexts) || deepLearningRegex.test(userTexts);
 }
@@ -648,7 +648,7 @@ async function callGroq(messages, groqKey, selectedModel, temperature, maxTokens
       model: modelToUse,
       messages: messages,
       temperature: typeof temperature === 'number' ? temperature : 0.7,
-      max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 16384) : 8192
+      max_tokens: typeof maxTokens === 'number' ? Math.min(maxTokens, 16384) : 8192
     })
   });
 
@@ -668,7 +668,7 @@ async function callGroq(messages, groqKey, selectedModel, temperature, maxTokens
             model: fallbackModel,
             messages: messages,
             temperature: typeof temperature === 'number' ? temperature : 0.7,
-            max_tokens: typeof max_tokens === 'number' ? Math.min(max_tokens, 16384) : 8192
+            max_tokens: typeof maxTokens === 'number' ? Math.min(maxTokens, 16384) : 8192
           })
         });
         const retryData = await retryRes.json();
@@ -700,11 +700,11 @@ async function callGroq(messages, groqKey, selectedModel, temperature, maxTokens
 // ==========================================
 app.post('/api/chat', chatLimiter, async (req, res) => {
   const rawGroqKey = process.env.GROQ_API_KEY || '';
-  const groqKey = rawGroqKey.trim().replace(/^["']|["']$/g, '');
+  const groqKey = rawGroqKey.trim().replace(/^['"]|['"]$/g, '');
   const hasGroq = groqKey && groqKey !== 'your_groq_api_key';
 
   const rawGeminiKey = process.env.GEMINI_API_KEY || '';
-  const geminiKey = rawGeminiKey.trim().replace(/^["']|["']$/g, '');
+  const geminiKey = rawGeminiKey.trim().replace(/^['"]|['"]$/g, '');
 
   if (!hasGroq && !geminiKey) {
     return res.status(500).json({
@@ -724,6 +724,8 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     });
   }
 
+  const safeMaxTokens = Number.isFinite(Number(max_tokens)) ? Math.min(Math.max(Number(max_tokens), 1), 16384) : 8192;
+
   // Automatic routing:
   // If user wants intense coding or deep learning -> shift to Gemini 3.8 Flash
   // If normal conversational usage -> Groq API
@@ -732,13 +734,13 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 
   if (routeToGemini && geminiKey) {
     try {
-      const result = await callGemini(messages, geminiKey, temperature, max_tokens);
+      const result = await callGemini(messages, geminiKey, temperature, safeMaxTokens);
       return res.json(result);
     } catch (geminiErr) {
       console.warn('Gemini 3.8 Flash failed, attempting Groq fallback:', geminiErr.message);
       if (hasGroq) {
         try {
-          const fallbackResult = await callGroq(messages, groqKey, 'llama-3.3-70b-versatile', temperature, max_tokens);
+          const fallbackResult = await callGroq(messages, groqKey, 'llama-3.3-70b-versatile', temperature, safeMaxTokens);
           fallbackResult.meta = fallbackResult.meta || {};
           fallbackResult.meta.fallback = true;
           fallbackResult.meta.fallbackFrom = 'gemini';
@@ -754,13 +756,13 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   // Normal uses: route to Groq for maximum speed
   if (hasGroq) {
     try {
-      const result = await callGroq(messages, groqKey, model, temperature, max_tokens);
+      const result = await callGroq(messages, groqKey, model, temperature, safeMaxTokens);
       return res.json(result);
     } catch (groqErr) {
       console.warn('Groq failed, attempting Gemini fallback:', groqErr.message);
       if (geminiKey) {
         try {
-          const fallbackResult = await callGemini(messages, geminiKey, temperature, max_tokens);
+          const fallbackResult = await callGemini(messages, geminiKey, temperature, safeMaxTokens);
           fallbackResult.meta = fallbackResult.meta || {};
           fallbackResult.meta.fallback = true;
           fallbackResult.meta.fallbackFrom = 'groq';
@@ -776,7 +778,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   // If Groq key not configured, seamlessly use Gemini for all tasks
   if (geminiKey) {
     try {
-      const result = await callGemini(messages, geminiKey, temperature, max_tokens);
+      const result = await callGemini(messages, geminiKey, temperature, safeMaxTokens);
       return res.json(result);
     } catch (err) {
       return res.status(502).json({ error: { message: 'Gemini error: ' + err.message } });
@@ -793,8 +795,8 @@ app.post('/api/allrounder', async (req, res) => {
     return res.status(400).json({ error: { message: 'messages array required' } });
   }
 
-  const rawGeminiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-  const rawGroqKey = (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const rawGeminiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
+  const rawGroqKey = (process.env.GROQ_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
   const hasGroq = rawGroqKey && rawGroqKey !== 'your_groq_api_key';
 
   // For allrounder intense coding/project tasks, prefer Gemini 3.8 Flash
@@ -826,8 +828,8 @@ app.post('/api/generate-image', async (req, res) => {
     return res.status(400).json({ error: { message: 'A text "prompt" is required for image generation.' } });
   }
 
-  const rawKey = process.env.NVIDIA_API_KEY || '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';
-  const apiKey = rawKey.trim().replace(/^["']|["']$/g, '');
+  const rawKey = process.env.NVIDIA_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^['"]|['"]$/g, '');
 
   if (!apiKey) {
     return res.status(500).json({
@@ -857,7 +859,7 @@ app.post('/api/generate-image', async (req, res) => {
   let appliedRatio = ratio;
 
   if (detectedStyle === 'conceptmap') {
-    styleSuffix = ', clear educational concept map infographic, structured connected nodes, modern minimalist vector typography, high visual contrast, elegant layout, academic poster, ultra-sharp 8k uhd';
+    styleSuffix = ', clear educational concept map infographic, structured connected nodes, modern minimalist vector typography, high visual contrast, elegant layout, academic poster, ultra-sharp 8k';
     if (appliedRatio === 'auto' || appliedRatio === 'square') appliedRatio = 'landscape';
   } else if (detectedStyle === 'diagram') {
     styleSuffix = ', accurate 3d educational scientific illustration, clear labeled parts, clean dark background, vivid colors, sharp focus, 8k uhd';
