@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -643,19 +643,26 @@ async function callNemotronVL(messages, nvKey, temperature, maxTokens) {
       temperature: typeof temperature === 'number' ? temperature : 0.7,
       top_p: 0.95,
       max_tokens: typeof maxTokens === 'number' ? Math.min(maxTokens, 16384) : 4096,
-      extra_body: { chat_template_kwargs: { enable_thinking: true } }
+      chat_template_kwargs: { enable_thinking: true }
     })
   });
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error?.message || `NVIDIA Nemotron error HTTP ${response.status}`);
+    const errMsg = data.message || data.error?.message || `NVIDIA Nemotron error HTTP ${response.status}`;
+    throw new Error(errMsg);
   }
 
-  // Extract reasoning_content if present and prepend or attach to reply
+  // Extract reasoning_content if present and ensure replyContent is never empty
   const choice = data.choices?.[0];
-  const replyContent = choice?.message?.content || '';
-  const reasoning = choice?.message?.reasoning_content;
+  let replyContent = choice?.message?.content || '';
+  const reasoning = choice?.message?.reasoning_content || '';
+  if (!replyContent && reasoning) {
+    replyContent = reasoning;
+  }
+  if (choice?.message && !choice.message.content && replyContent) {
+    choice.message.content = replyContent;
+  }
 
   data.meta = {
     provider: 'nvidia-nemotron',
@@ -726,7 +733,12 @@ app.post('/api/allrounder', async (req, res) => {
 // ==========================================
 app.post('/api/vision/nemotron', async (req, res) => {
   const { messages, temperature = 0.7, max_tokens = 4096 } = req.body;
-  const nvKey = (process.env.NVIDIA_API_KEY || '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').trim();
+  const defaultNvKey = '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';
+  let rawNvKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!rawNvKey || rawNvKey.length < 15 || rawNvKey === 'your_nvidia_api_key') {
+    rawNvKey = defaultNvKey;
+  }
+  const nvKey = rawNvKey;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: { message: 'messages array is required' } });
