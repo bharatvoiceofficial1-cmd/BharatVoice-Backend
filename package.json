@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "bharat-voice-backend",
   "version": "1.0.0",
   "description": "Secure AI Proxy Backend for Bharat Voice study companion",
@@ -11,7 +11,7 @@
     "bharat-voice",
     "ai",
     "education",
-    "groq",
+    "gemini",
     "express"
   ],
   "author": "Bharat Voice Team",

@@ -1,6 +1,6 @@
 # Bharat Voice — AI Backend Proxy
 
-A lightweight, secure Node.js & Express proxy server that manages AI conversations for **Bharat Voice**. It keeps your Groq API keys completely secure on the backend while allowing students to use the study companion from GitHub Pages or mobile browsers without needing their own API keys.
+A lightweight, secure Node.js & Express proxy server that manages AI conversations for **Bharat Voice**. It keeps your Google Gemini API keys completely secure on the backend while allowing students to use the study companion from GitHub Pages or mobile browsers without needing their own API keys.
 
 ---
 
@@ -15,8 +15,8 @@ npm install
 Your `.env` file is already created. It should contain:
 ```env
 PORT=3000
-GROQ_API_KEY=your_groq_api_key_here
-DEFAULT_MODEL=llama-3.3-70b-versatile
+GEMINI_API_KEY=your_gemini_api_key_here
+DEFAULT_MODEL=gemini-3.8-flash
 ```
 
 ### 3. Start the Server
@@ -57,7 +57,7 @@ To connect your live GitHub Pages frontend to this backend, host it on Render fo
      * **Start Command:** `npm start`
      * **Plan:** Free
    * Scroll down to **Environment Variables** and add:
-     * `GROQ_API_KEY` = *(Your Groq API key)*
+     * `GEMINI_API_KEY` = *(Your Google Gemini API key)*
      * `DEFAULT_MODEL` = `llama-3.3-70b-versatile`
    * Click **Deploy Web Service**.
 
