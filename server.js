@@ -628,32 +628,52 @@ NEVER add unsolicited math formulas or academic content to casual messages.`;
 // 7. CORE AI CHAT PROXY (INTELLIGENT AUTO-ROUTING)
 // ==========================================
 
-// Call NVIDIA Nemotron-3.5-Super-VL-120B-A12B for High-Tier Vision & Multimodal Reasoning
-async function callNemotronVL(messages, nvKey, temperature, maxTokens) {
+// Generic caller for NVIDIA NIM / Integrate catalog models (Mistral Large, Nemotron, Codestral, etc.)
+async function callNvidiaModel(modelName, messages, nvKey, options = {}) {
   const endpoint = 'https://integrate.api.nvidia.com/v1/chat/completions';
+  const {
+    temperature = 0.5,
+    top_p = 1.0,
+    max_tokens = 4096,
+    frequency_penalty = 0,
+    presence_penalty = 0,
+    reasoning_effort,
+    enable_thinking = true
+  } = options;
+
+  const payload = {
+    model: modelName,
+    messages: messages,
+    temperature: typeof temperature === 'number' ? temperature : 0.5,
+    top_p: typeof top_p === 'number' ? top_p : 1.0,
+    max_tokens: Math.min(Number(max_tokens) || 4096, 16384),
+    frequency_penalty: Number(frequency_penalty) || 0,
+    presence_penalty: Number(presence_penalty) || 0
+  };
+
+  if (reasoning_effort) {
+    payload.reasoning_effort = reasoning_effort;
+  }
+  if (enable_thinking) {
+    payload.chat_template_kwargs = { enable_thinking: true };
+  }
+
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${nvKey}`
     },
-    body: JSON.stringify({
-      model: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
-      messages: messages,
-      temperature: typeof temperature === 'number' ? temperature : 0.7,
-      top_p: 0.95,
-      max_tokens: typeof maxTokens === 'number' ? Math.min(maxTokens, 16384) : 4096,
-      chat_template_kwargs: { enable_thinking: true }
-    })
+    body: JSON.stringify(payload)
   });
 
   const data = await response.json();
   if (!response.ok) {
-    const errMsg = data.message || data.error?.message || `NVIDIA Nemotron error HTTP ${response.status}`;
+    const errMsg = data.message || data.error?.message || `NVIDIA API error HTTP ${response.status}`;
     throw new Error(errMsg);
   }
 
-  // Extract reasoning_content if present and ensure replyContent is never empty
+  // Ensure content exists (fall back to reasoning_content if content is null)
   const choice = data.choices?.[0];
   let replyContent = choice?.message?.content || '';
   const reasoning = choice?.message?.reasoning_content || '';
@@ -665,12 +685,21 @@ async function callNemotronVL(messages, nvKey, temperature, maxTokens) {
   }
 
   data.meta = {
-    provider: 'nvidia-nemotron',
-    model: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
+    provider: 'nvidia-nim',
+    model: modelName,
     hasThinking: !!reasoning
   };
 
   return data;
+}
+
+// Call NVIDIA Nemotron-3.5-Super-VL-120B-A12B for High-Tier Vision & Multimodal Reasoning
+async function callNemotronVL(messages, nvKey, temperature, maxTokens) {
+  return callNvidiaModel('nvidia/nemotron-3.5-super-vl-120b-a12b', messages, nvKey, {
+    temperature,
+    max_tokens: maxTokens,
+    enable_thinking: true
+  });
 }
 
 app.post('/api/chat', chatLimiter, async (req, res) => {
@@ -750,6 +779,138 @@ app.post('/api/vision/nemotron', async (req, res) => {
   } catch (err) {
     console.error('NVIDIA Nemotron VL error:', err.message);
     return res.status(502).json({ error: { message: 'Nemotron service error: ' + err.message } });
+  }
+});
+
+// ==========================================
+// 7.2 UNIFIED MULTI-MODEL WORKSPACE ENDPOINTS (MISTRAL, NEMOTRON, GEMINI)
+// ==========================================
+const WORKSPACE_CATALOG = [
+  {
+    id: 'mistralai/mistral-large-4-1t-a52b',
+    name: 'Mistral Large 4 1T',
+    provider: 'Mistral AI',
+    badge: 'Frontier Reasoning',
+    category: 'reasoning',
+    contextLength: '128K',
+    params: '1T MoE',
+    vision: true,
+    thinking: true,
+    description: 'Flagship frontier model with deep chain-of-thought, multimodal vision, mathematical derivations, and 128k context.',
+    recommendedParams: { temperature: 0.5, top_p: 1.0, max_tokens: 4096, reasoning_effort: 'high' }
+  },
+  {
+    id: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
+    name: 'NVIDIA Nemotron 3.5 Super VL 120B',
+    provider: 'NVIDIA',
+    badge: 'Agentic Vision',
+    category: 'vision',
+    contextLength: '128K',
+    params: '120B MoE',
+    vision: true,
+    thinking: true,
+    description: 'Autonomous agentic engine engineered for visual diagram reasoning, flowchart execution, and multi-step workflows.',
+    recommendedParams: { temperature: 0.7, top_p: 0.95, max_tokens: 4096 }
+  },
+  {
+    id: 'gemini-3.8-flash',
+    name: 'Google Gemini 3.8 Flash',
+    provider: 'Google DeepMind',
+    badge: 'Bilingual Core',
+    category: 'general',
+    contextLength: '1M',
+    params: 'Multimodal',
+    vision: true,
+    thinking: false,
+    description: 'Ultra-low latency bilingual study engine with 1M token context for CBSE/State exams and interactive voice tutoring.',
+    recommendedParams: { temperature: 0.6, top_p: 0.95, max_tokens: 8192 }
+  },
+  {
+    id: 'mistralai/codestral-22b-instruct-v0.1',
+    name: 'Mistral Codestral 22B',
+    provider: 'Mistral AI',
+    badge: 'Code & Logic',
+    category: 'code',
+    contextLength: '32K',
+    params: '22B',
+    vision: false,
+    thinking: false,
+    description: 'State-of-the-art coding powerhouse trained on 80+ programming languages for code generation and debugging.',
+    recommendedParams: { temperature: 0.2, top_p: 0.95, max_tokens: 4096 }
+  },
+  {
+    id: 'mistralai/mistral-7b-instruct-v0.3',
+    name: 'Mistral 7B Instruct v0.3',
+    provider: 'Mistral AI',
+    badge: 'Ultra Fast',
+    category: 'general',
+    contextLength: '32K',
+    params: '7.3B',
+    vision: false,
+    thinking: false,
+    description: 'High-speed, compact intelligence model ideal for quick explanations, flashcard generation, and rapid Q&A.',
+    recommendedParams: { temperature: 0.7, top_p: 1.0, max_tokens: 2048 }
+  }
+];
+
+app.get('/api/models/catalog', (req, res) => {
+  res.json({
+    status: 'ok',
+    totalModels: WORKSPACE_CATALOG.length,
+    models: WORKSPACE_CATALOG
+  });
+});
+
+app.post('/api/models/chat', async (req, res) => {
+  const {
+    model = 'mistralai/mistral-large-4-1t-a52b',
+    messages,
+    temperature = 0.5,
+    top_p = 1.0,
+    max_tokens = 4096,
+    frequency_penalty = 0,
+    presence_penalty = 0,
+    reasoning_effort,
+    enable_thinking = true
+  } = req.body;
+
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: { message: 'messages array is required' } });
+  }
+
+  // Handle Gemini models
+  if (model.includes('gemini')) {
+    const defaultGeminiKey = Buffer.from('QVEuQWI4Uk42SWJNYzJJQ0V3OWxnOU50VXV2bjQ5ZDVBeVo0OEtYYktsaHBQRlN6eHE5TkE=', 'base64').toString('utf8');
+    const geminiKey = (process.env.GEMINI_API_KEY || defaultGeminiKey).trim().replace(/^['"]|['"]$/g, '');
+    try {
+      const result = await callGemini(messages, geminiKey, temperature, max_tokens);
+      return res.json(result);
+    } catch (e) {
+      return res.status(502).json({ error: { message: 'Gemini error: ' + e.message } });
+    }
+  }
+
+  // Handle NVIDIA NIM hosted models (Mistral Large, Nemotron, Codestral, etc.)
+  const defaultNvKey = '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';
+  let rawNvKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!rawNvKey || rawNvKey.length < 15 || rawNvKey === 'your_nvidia_api_key') {
+    rawNvKey = defaultNvKey;
+  }
+
+  try {
+    const result = await callNvidiaModel(model, messages, rawNvKey, {
+      temperature,
+      top_p,
+      max_tokens,
+      frequency_penalty,
+      presence_penalty,
+      reasoning_effort,
+      enable_thinking
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error(`Model proxy error (${model}):`, err.message);
+    return res.status(502).json({ error: { message: `${model} execution error: ${err.message}` } });
   }
 });
 
