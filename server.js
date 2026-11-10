@@ -627,6 +627,45 @@ NEVER add unsolicited math formulas or academic content to casual messages.`;
 // ==========================================
 // 7. CORE AI CHAT PROXY (INTELLIGENT AUTO-ROUTING)
 // ==========================================
+
+// Call NVIDIA Nemotron-3.5-Super-VL-120B-A12B for High-Tier Vision & Multimodal Reasoning
+async function callNemotronVL(messages, nvKey, temperature, maxTokens) {
+  const endpoint = 'https://integrate.api.nvidia.com/v1/chat/completions';
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${nvKey}`
+    },
+    body: JSON.stringify({
+      model: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
+      messages: messages,
+      temperature: typeof temperature === 'number' ? temperature : 0.7,
+      top_p: 0.95,
+      max_tokens: typeof maxTokens === 'number' ? Math.min(maxTokens, 16384) : 4096,
+      extra_body: { chat_template_kwargs: { enable_thinking: true } }
+    })
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || `NVIDIA Nemotron error HTTP ${response.status}`);
+  }
+
+  // Extract reasoning_content if present and prepend or attach to reply
+  const choice = data.choices?.[0];
+  const replyContent = choice?.message?.content || '';
+  const reasoning = choice?.message?.reasoning_content;
+
+  data.meta = {
+    provider: 'nvidia-nemotron',
+    model: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
+    hasThinking: !!reasoning
+  };
+
+  return data;
+}
+
 app.post('/api/chat', chatLimiter, async (req, res) => {
   const defaultGeminiKey = Buffer.from('QVEuQWI4Uk42SWJNYzJJQ0V3OWxnOU50VXV2bjQ5ZDVBeVo0OEtYYktsaHBQRlN6eHE5TkE=', 'base64').toString('utf8');
   const rawGeminiKey = process.env.GEMINI_API_KEY || defaultGeminiKey;
@@ -678,6 +717,27 @@ app.post('/api/allrounder', async (req, res) => {
   } catch (geminiErr) {
     console.error('Allrounder Gemini failed:', geminiErr.message);
     return res.status(502).json({ error: { message: 'Allrounder Gemini error: ' + geminiErr.message } });
+  }
+});
+
+
+// ==========================================
+// 7.1 DEDICATED NVIDIA NEMOTRON 3.5 SUPER VL ENDPOINT
+// ==========================================
+app.post('/api/vision/nemotron', async (req, res) => {
+  const { messages, temperature = 0.7, max_tokens = 4096 } = req.body;
+  const nvKey = (process.env.NVIDIA_API_KEY || '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').trim();
+
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: { message: 'messages array is required' } });
+  }
+
+  try {
+    const result = await callNemotronVL(messages, nvKey, temperature, max_tokens);
+    return res.json(result);
+  } catch (err) {
+    console.error('NVIDIA Nemotron VL error:', err.message);
+    return res.status(502).json({ error: { message: 'Nemotron service error: ' + err.message } });
   }
 });
 
