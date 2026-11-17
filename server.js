@@ -99,7 +99,7 @@ function authenticateUser(req, res, next) {
 app.get('/api/health', (req, res) => {
   const defaultGeminiKey = Buffer.from('QVEuQWI4Uk42SWJNYzJJQ0V3OWxnOU50VXV2bjQ5ZDVBeVo0OEtYYktsaHBQRlN6eHE5TkE=', 'base64').toString('utf8');
   const geminiKey = (process.env.GEMINI_API_KEY || defaultGeminiKey).trim().replace(/^['"]|['"]$/g, '');
-  const nvKey = (process.env.NVIDIA_API_KEY || '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').trim();
+  const nvKey = (process.env.NVIDIA_API_KEY || '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').trim();
   res.json({
     status: 'ok',
     service: 'Bharat Voice AI Gateway',
@@ -762,7 +762,7 @@ app.post('/api/allrounder', async (req, res) => {
 // ==========================================
 app.post('/api/vision/nemotron', async (req, res) => {
   const { messages, temperature = 0.7, max_tokens = 4096 } = req.body;
-  const defaultNvKey = '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';
+  const defaultNvKey = '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';
   let rawNvKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
   if (!rawNvKey || rawNvKey.length < 15 || rawNvKey === 'your_nvidia_api_key') {
     rawNvKey = defaultNvKey;
@@ -891,7 +891,7 @@ app.post('/api/models/chat', async (req, res) => {
   }
 
   // Handle NVIDIA NIM hosted models (Mistral Large, Nemotron, Codestral, etc.)
-  const defaultNvKey = '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';
+  const defaultNvKey = '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';
   let rawNvKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
   if (!rawNvKey || rawNvKey.length < 15 || rawNvKey === 'your_nvidia_api_key') {
     rawNvKey = defaultNvKey;
@@ -922,7 +922,7 @@ app.post('/api/generate-image', async (req, res) => {
     return res.status(400).json({ error: { message: 'A text "prompt" is required for image generation.' } });
   }
 
-  const defaultNvKey = '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';
+  const defaultNvKey = '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';
   let apiKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^["']|["']$/g, '');
   if (!apiKey || apiKey === 'your_nvidia_api_key' || apiKey.length < 15) {
     apiKey = defaultNvKey;
