@@ -319,19 +319,18 @@ app.get('/api/user/performance', authenticateUser, async (req, res) => {
 // 5. RAZORPAY PAYMENT GATEWAY
 // ==========================================
 const PLAN_CATALOG = {
-  shakti: { amount: 4116, originalAmount: 4900, discountPercent: 16, name: 'Core Node ⚡ (Chhath Puja 16% OFF)', durationDays: 30 },
-  mahashakti: { amount: 46116, originalAmount: 54900, discountPercent: 16, name: 'Enterprise Cluster ðŸŒ (Chhath Puja 16% OFF)', durationDays: 365 },
-  bharatpro: { amount: 8316, originalAmount: 9900, discountPercent: 16, name: 'Bharat Pro ⚡ (Chhath Puja 16% OFF)', durationDays: 30 },
-  bharatmax: { amount: 16716, originalAmount: 19900, discountPercent: 16, name: 'Quantum Max (Chhath Puja 16% OFF)', durationDays: 30 },
-  scholarpro: { amount: 12516, originalAmount: 14900, discountPercent: 16, name: 'Scholar Compute (Chhath Puja 16% OFF)', durationDays: 30 }
+  shakti: { amount: 4900, name: 'Core Node ⚡', durationDays: 30 },
+  mahashakti: { amount: 54900, name: 'Enterprise Cluster 🌐', durationDays: 365 },
+  bharatpro: { amount: 9900, name: 'Bharat Pro ⚡', durationDays: 30 },
+  bharatmax: { amount: 19900, name: 'Quantum Max', durationDays: 30 },
+  scholarpro: { amount: 14900, name: 'Scholar Compute', durationDays: 30 }
 };
 
-// 0. Get Active Plans with Chhath Puja Festive Offer
+// 0. Get Active Plans
 app.get('/api/payment/plans', (req, res) => {
   res.json({
-    promotion: 'Chhath Mahaparv Special Offer — Flat 16% OFF',
-    discountPercent: 16,
-    couponCode: 'CHHATH16',
+    promotion: null,
+    discountPercent: 0,
     plans: PLAN_CATALOG
   });
 });
@@ -415,9 +414,9 @@ app.post('/api/payment/verify', authenticateUser, async (req, res) => {
     }
     return res.json({
       status: 'success',
-      message: `🎉 Chhath Puja Coupon Applied! You are now subscribed to ${PLAN_CATALOG[validPlan]?.name || validPlan} 100% FREE!`,
+      message: `🎉 Coupon Applied! You are now subscribed to ${PLAN_CATALOG[validPlan]?.name || validPlan} 100% FREE!`,
       plan: validPlan,
-      paymentId: 'CHHATH_FREE_' + Date.now()
+      paymentId: 'PROMO_FREE_' + Date.now()
     });
   }
 
