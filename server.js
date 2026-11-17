@@ -914,59 +914,56 @@ app.post('/api/models/chat', async (req, res) => {
   }
 });
 
-// 7. HIGH-RESOLUTION AI IMAGE GENERATION (NVIDIA FLUX)
+// 7. HIGH-RESOLUTION AI IMAGE GENERATION (NVIDIA FLUX 3 ENGINE)
 // ==========================================
 app.post('/api/generate-image', async (req, res) => {
-  const { prompt, style = 'auto', ratio = 'square' } = req.body;
+  const { prompt, finalPrompt: clientFinalPrompt, style, ratio = 'square', is3D: clientIs3D, is4K: clientIs4K } = req.body;
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
     return res.status(400).json({ error: { message: 'A text "prompt" is required for image generation.' } });
   }
 
   const defaultNvKey = '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';
-  let apiKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^[\"']|[\"']$/g, '');
+  let apiKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^["']|["']$/g, '');
   if (!apiKey || apiKey === 'your_nvidia_api_key' || apiKey.length < 15) {
     apiKey = defaultNvKey;
   }
 
   const raw = prompt.trim();
-  let detectedStyle = style;
-  if (detectedStyle === 'auto') {
-    if (/concept\s*map|mind\s*map|flowchart|infographic|diagram|roadmap|workflow|schematic|architecture/i.test(raw)) {
-      detectedStyle = 'conceptmap';
-    } else if (/atom|molecule|electron|nucleus|cell|dna|photosynthesis|organ|anatomy|circuit|solar\s*system|planet|physics|chemistry|biology|science|schematic/i.test(raw)) {
-      detectedStyle = 'diagram';
-    } else if (/photo|photograph|portrait|real life|realistic|person|landscape|dslr/i.test(raw)) {
-      detectedStyle = 'photo';
-    } else if (/3d|isometric|blender|render/i.test(raw)) {
-      detectedStyle = '3d';
-    } else if (/anime|manga|cartoon|sketch|art|digital art/i.test(raw)) {
-      detectedStyle = 'art';
-    } else {
-      detectedStyle = 'diagram';
-    }
-  }
+  
+  // 3D Rule: NEVER generate 3D unless explicitly requested by the user
+  const is3D = (clientIs3D !== undefined) 
+    ? Boolean(clientIs3D) 
+    : /(\b3d\b|3-d|three-dimensional|isometric|blender|octane|unreal\s*engine|cgi|claymation)/i.test(raw);
+  
+  const is4K = (clientIs4K !== undefined)
+    ? Boolean(clientIs4K)
+    : (/\b4k\b/i.test(raw) && !is3D);
 
+  let detectedStyle = 'photo-8k';
   let styleSuffix = '';
-  let appliedRatio = ratio;
+  let modeName = '8K UHD Photo';
 
-  if (detectedStyle === 'conceptmap') {
-    styleSuffix = ', clear educational concept map infographic, structured connected nodes, modern minimalist vector typography, high visual contrast, elegant layout, academic poster, ultra-sharp 8k';
-    if (appliedRatio === 'auto' || appliedRatio === 'square') appliedRatio = 'landscape';
-  } else if (detectedStyle === 'diagram') {
-    styleSuffix = ', accurate 3d educational scientific illustration, clear labeled parts, clean dark background, vivid colors, sharp focus, 8k uhd';
-    if (appliedRatio === 'auto') appliedRatio = 'landscape';
-  } else if (detectedStyle === 'photo') {
-    styleSuffix = ', photorealistic, masterwork photography, 8k uhd, cinematic lighting, sharp focus, high dynamic range, breathtaking detail';
-  } else if (detectedStyle === 'art') {
-    styleSuffix = ', stunning digital art, vibrant color grading, intricate details, artistic masterpiece, trending on artstation, 8k';
-  } else if (detectedStyle === '3d') {
-    styleSuffix = ', 3d isometric render, blender 3d style, octane render, soft ambient shadows, modern clean 3d illustration, 8k';
+  if (is3D) {
+    detectedStyle = '3d';
+    modeName = '3D Masterpiece';
+    styleSuffix = ', 3D digital render, Pixar and Unreal Engine 5 aesthetic, Octane Render 3D, ray-traced ambient occlusion, subsurface scattering, volumetric studio lighting, highly detailed 3D model, ultra-high resolution 8K 3D masterpiece';
+  } else if (is4K) {
+    detectedStyle = 'photo-4k';
+    modeName = '4K UHD Photo';
+    styleSuffix = ', ultra-sharp 4K UHD photograph, photorealistic, natural cinematic lighting, highly detailed textures, DSLR crisp focus, professional photography, 4K resolution';
   } else {
-    styleSuffix = ', high quality, ultra detailed, sharp focus, clean composition, 8k';
+    detectedStyle = 'photo-8k';
+    modeName = '8K UHD Photo';
+    styleSuffix = ', award-winning masterpiece photograph, ultra-detailed 8K UHD, photorealistic, hyper-realistic textures, professional studio lighting, razor-sharp focus, cinematic depth of field, breathtaking 8K resolution, raw photograph';
   }
 
-  // Map ratio to NVIDIA FLUX supported aspect ratios:
-  // Supported: '1:1', '4:3', '3:4', '3:2', '2:3', '21:9'
+  let appliedRatio = ratio;
+  if (/landscape|wallpaper|desktop|widescreen|16:9|panoramic/i.test(raw)) {
+    appliedRatio = 'landscape';
+  } else if (/portrait|phone|mobile|story|vertical|9:16/i.test(raw)) {
+    appliedRatio = 'portrait';
+  }
+
   let nvRatio = '1:1';
   let width = 1024, height = 1024;
   if (appliedRatio === 'landscape' || appliedRatio === '16:9' || appliedRatio === '4:3') {
@@ -975,12 +972,9 @@ app.post('/api/generate-image', async (req, res) => {
   } else if (appliedRatio === 'portrait' || appliedRatio === '9:16' || appliedRatio === '3:4') {
     nvRatio = '3:4';
     width = 864; height = 1152;
-  } else if (appliedRatio === 'wide' || appliedRatio === '21:9') {
-    nvRatio = '21:9';
-    width = 1344; height = 576;
   }
 
-  const finalPrompt = raw + styleSuffix;
+  const finalPrompt = clientFinalPrompt || (raw + styleSuffix);
 
   try {
     const nvResponse = await fetch('https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux-3-image-klein', {
@@ -1004,40 +998,41 @@ app.post('/api/generate-image', async (req, res) => {
       const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?width=${width}&height=${height}&model=flux&nologo=true`;
       const fRes = await fetch(fallbackUrl);
       if (fRes.ok) {
-        const ab = await fRes.arrayBuffer();
-        const b64 = Buffer.from(ab).toString('base64');
+        const arrBuf = await fRes.arrayBuffer();
+        const b64 = Buffer.from(arrBuf).toString('base64');
         return res.json({
           status: 'success',
           image: `data:image/jpeg;base64,${b64}`,
-          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
+          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, mode: modeName, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
         });
       }
       return res.status(nvResponse.status).json({ error: { message: errMsg } });
     }
 
-    const base64Img = data?.artifacts?.[0]?.base64 || data?.b64_json;
-    if (!base64Img) {
+    const b64Artifact = data?.artifacts?.[0]?.base64 || data?.b64_json;
+    if (!b64Artifact) {
       const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?width=${width}&height=${height}&model=flux&nologo=true`;
       const fRes = await fetch(fallbackUrl);
       if (fRes.ok) {
-        const ab = await fRes.arrayBuffer();
-        const b64 = Buffer.from(ab).toString('base64');
+        const arrBuf = await fRes.arrayBuffer();
+        const b64 = Buffer.from(arrBuf).toString('base64');
         return res.json({
           status: 'success',
           image: `data:image/jpeg;base64,${b64}`,
-          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
+          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, mode: modeName, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
         });
       }
       return res.status(502).json({ error: { message: 'No image artifact returned by NVIDIA generation model.' } });
     }
 
-    const dataUrl = `data:image/jpeg;base64,${base64Img}`;
+    const dataUrl = `data:image/jpeg;base64,${b64Artifact}`;
     res.json({
       status: 'success',
       image: dataUrl,
       meta: {
         model: 'black-forest-labs/flux-3-image-klein (NVIDIA NIM)',
         style: detectedStyle,
+        mode: modeName,
         ratio: appliedRatio,
         aspect_ratio: nvRatio,
         width,
@@ -1045,17 +1040,17 @@ app.post('/api/generate-image', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Image generation proxy error, attempting FLUX fallback:', err.message);
+    console.warn('NVIDIA Image Generation unexpected error:', err.message, '— trying FLUX cloud fallback');
     try {
       const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?width=${width}&height=${height}&model=flux&nologo=true`;
       const fRes = await fetch(fallbackUrl);
       if (fRes.ok) {
-        const ab = await fRes.arrayBuffer();
-        const b64 = Buffer.from(ab).toString('base64');
+        const arrBuf = await fRes.arrayBuffer();
+        const b64 = Buffer.from(arrBuf).toString('base64');
         return res.json({
           status: 'success',
           image: `data:image/jpeg;base64,${b64}`,
-          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
+          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, mode: modeName, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
         });
       }
     } catch(e){}
