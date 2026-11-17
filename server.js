@@ -32,7 +32,7 @@ if (razorpayKeyId && razorpayKeySecret) {
     console.error('Failed to initialize Razorpay client:', err.message);
   }
 } else {
-  console.warn('⚠️ Razorpay credentials not found in environment. Payment endpoints will prompt for setup.');
+  console.warn('âš ï¸ Razorpay credentials not found in environment. Payment endpoints will prompt for setup.');
 }
 
 // Initialize Supabase client if configured
@@ -50,7 +50,7 @@ if (supabaseUrl && supabaseKey) {
     console.error('Failed to initialize Supabase client:', err.message);
   }
 } else {
-  console.warn('⚠️ Supabase credentials not found in environment. Running in auth-verify mode.');
+  console.warn('âš ï¸ Supabase credentials not found in environment. Running in auth-verify mode.');
 }
 
 // Enable CORS for all incoming origins (GitHub Pages, localhost, mobile browsers)
@@ -320,7 +320,7 @@ app.get('/api/user/performance', authenticateUser, async (req, res) => {
 // ==========================================
 const PLAN_CATALOG = {
   shakti: { amount: 4116, originalAmount: 4900, discountPercent: 16, name: 'Core Node ⚡ (Chhath Puja 16% OFF)', durationDays: 30 },
-  mahashakti: { amount: 46116, originalAmount: 54900, discountPercent: 16, name: 'Enterprise Cluster 🌐 (Chhath Puja 16% OFF)', durationDays: 365 },
+  mahashakti: { amount: 46116, originalAmount: 54900, discountPercent: 16, name: 'Enterprise Cluster ðŸŒ (Chhath Puja 16% OFF)', durationDays: 365 },
   bharatpro: { amount: 8316, originalAmount: 9900, discountPercent: 16, name: 'Bharat Pro ⚡ (Chhath Puja 16% OFF)', durationDays: 30 },
   bharatmax: { amount: 16716, originalAmount: 19900, discountPercent: 16, name: 'Quantum Max (Chhath Puja 16% OFF)', durationDays: 30 },
   scholarpro: { amount: 12516, originalAmount: 14900, discountPercent: 16, name: 'Scholar Compute (Chhath Puja 16% OFF)', durationDays: 30 }
@@ -549,11 +549,11 @@ async function callGemini(messages, geminiKey, temperature, maxTokens) {
   if (!systemInstructionText) {
     systemInstructionText = `You are Bharat Voice, a smart and friendly AI assistant.
 CRITICAL RULE: Match your reply EXACTLY to what the user asked.
-- Greetings ("hi","hello","hey") → Short friendly greeting ONLY. No academic content.
-- Casual messages → Reply naturally and briefly like a friend.
-- Simple math → Give the direct answer. Example: "5 + 3 = 8"
-- Simple question → 1-3 sentence answer. Direct and clear.
-- Detailed question (explain, derive, code, concept map) → Full structured answer.
+- Greetings ("hi","hello","hey") -> Short friendly greeting ONLY. No academic content.
+- Casual messages -> Reply naturally and briefly like a friend.
+- Simple math -> Give the direct answer. Example: "5 + 3 = 8"
+- Simple question -> 1-3 sentence answer. Direct and clear.
+- Detailed question (explain, derive, code, concept map) -> Full structured answer.
 NEVER add unsolicited math formulas or academic content to casual messages.`;
   }
 
@@ -762,7 +762,7 @@ app.post('/api/allrounder', async (req, res) => {
 // ==========================================
 app.post('/api/vision/nemotron', async (req, res) => {
   const { messages, temperature = 0.7, max_tokens = 4096 } = req.body;
-  const defaultNvKey = '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';
+  const defaultNvKey = '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';
   let rawNvKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
   if (!rawNvKey || rawNvKey.length < 15 || rawNvKey === 'your_nvidia_api_key') {
     rawNvKey = defaultNvKey;
@@ -891,7 +891,7 @@ app.post('/api/models/chat', async (req, res) => {
   }
 
   // Handle NVIDIA NIM hosted models (Mistral Large, Nemotron, Codestral, etc.)
-  const defaultNvKey = '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';
+  const defaultNvKey = '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';
   let rawNvKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
   if (!rawNvKey || rawNvKey.length < 15 || rawNvKey === 'your_nvidia_api_key') {
     rawNvKey = defaultNvKey;
@@ -922,7 +922,7 @@ app.post('/api/generate-image', async (req, res) => {
     return res.status(400).json({ error: { message: 'A text "prompt" is required for image generation.' } });
   }
 
-  const defaultNvKey = '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';
+  const defaultNvKey = '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';
   let apiKey = (process.env.NVIDIA_API_KEY || '').trim().replace(/^[\"']|[\"']$/g, '');
   if (!apiKey || apiKey === 'your_nvidia_api_key' || apiKey.length < 15) {
     apiKey = defaultNvKey;
@@ -983,7 +983,7 @@ app.post('/api/generate-image', async (req, res) => {
   const finalPrompt = raw + styleSuffix;
 
   try {
-    const nvResponse = await fetch('https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.2-klein-4b', {
+    const nvResponse = await fetch('https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux-3-image-klein', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -1009,7 +1009,7 @@ app.post('/api/generate-image', async (req, res) => {
         return res.json({
           status: 'success',
           image: `data:image/jpeg;base64,${b64}`,
-          meta: { model: 'black-forest-labs/flux.2-klein-4b (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
+          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
         });
       }
       return res.status(nvResponse.status).json({ error: { message: errMsg } });
@@ -1025,7 +1025,7 @@ app.post('/api/generate-image', async (req, res) => {
         return res.json({
           status: 'success',
           image: `data:image/jpeg;base64,${b64}`,
-          meta: { model: 'black-forest-labs/flux.2-klein-4b (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
+          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
         });
       }
       return res.status(502).json({ error: { message: 'No image artifact returned by NVIDIA generation model.' } });
@@ -1036,7 +1036,7 @@ app.post('/api/generate-image', async (req, res) => {
       status: 'success',
       image: dataUrl,
       meta: {
-        model: 'black-forest-labs/flux.2-klein-4b (NVIDIA NIM)',
+        model: 'black-forest-labs/flux-3-image-klein (NVIDIA NIM)',
         style: detectedStyle,
         ratio: appliedRatio,
         aspect_ratio: nvRatio,
@@ -1055,7 +1055,7 @@ app.post('/api/generate-image', async (req, res) => {
         return res.json({
           status: 'success',
           image: `data:image/jpeg;base64,${b64}`,
-          meta: { model: 'black-forest-labs/flux.2-klein-4b (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
+          meta: { model: 'black-forest-labs/flux-3-image-klein (FLUX Fallback)', style: detectedStyle, ratio: appliedRatio, aspect_ratio: nvRatio, width, height }
         });
       }
     } catch(e){}
@@ -1133,3 +1133,4 @@ app.listen(PORT, () => {
   console.log(` Database:     ${supabase ? 'Connected (Supabase)' : 'Waiting for SUPABASE_URL'}`);
   console.log(`=========================================`);
 });
+
