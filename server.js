@@ -563,11 +563,7 @@ NEVER add unsolicited math formulas or academic content to casual messages.`;
   }
 
   const candidateModels = [
-    'gemini-flash-lite-latest',
-    'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite',
-    'gemini-3.5-flash',
-    'gemini-3.8-flash'
+    'gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash'
   ];
 
   let lastError = null;
@@ -700,6 +696,89 @@ async function callNemotronVL(messages, nvKey, temperature, maxTokens) {
     enable_thinking: true
   });
 }
+
+
+// ==========================================
+// 6.5 REAL-TIME WEB SEARCH & URL BROWSING
+// ==========================================
+async function performWebSearchBackend(query) {
+  const sources = [];
+  try {
+    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
+    const res = await fetch(wikiUrl);
+    const data = await res.json();
+    if (data.query && data.query.search && Array.isArray(data.query.search)) {
+      for (const item of data.query.search.slice(0, 4)) {
+        sources.push({
+          title: item.title,
+          snippet: item.snippet.replace(/<[^>]+>/g, '').trim(),
+          url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}`
+        });
+      }
+    }
+  } catch(e) {}
+
+  try {
+    const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    const res = await fetch(ddgUrl);
+    const data = await res.json();
+    if (data.AbstractText) {
+      sources.unshift({
+        title: data.Heading || query,
+        snippet: data.AbstractText,
+        url: data.AbstractURL || `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
+      });
+    }
+  } catch(e) {}
+  return sources;
+}
+
+async function performBrowseUrlBackend(targetUrl) {
+  try {
+    const res = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+    const html = await res.text();
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : targetUrl;
+    const pMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || [];
+    const textParts = pMatches.map(p => p.replace(/<[^>]+>/g, '').trim()).filter(t => t.length > 20);
+    const content = textParts.slice(0, 8).join('\n\n');
+    return { url: targetUrl, title: title || 'Web Page', content: content.slice(0, 4000) };
+  } catch(err) {
+    return { url: targetUrl, error: err.message };
+  }
+}
+
+app.get('/api/search', async (req, res) => {
+  const q = req.query.q || '';
+  if (!q.trim()) return res.json({ sources: [] });
+  const sources = await performWebSearchBackend(q.trim());
+  res.json({ query: q, sources });
+});
+
+app.post('/api/search', async (req, res) => {
+  const q = req.body.query || req.body.q || '';
+  if (!q.trim()) return res.json({ sources: [] });
+  const sources = await performWebSearchBackend(q.trim());
+  res.json({ query: q, sources });
+});
+
+app.get('/api/browse', async (req, res) => {
+  const urlParam = req.query.url || '';
+  if (!urlParam.trim()) return res.status(400).json({ error: { message: 'Missing url parameter' } });
+  const data = await performBrowseUrlBackend(urlParam.trim());
+  res.json(data);
+});
+
+app.post('/api/browse', async (req, res) => {
+  const urlParam = req.body.url || '';
+  if (!urlParam.trim()) return res.status(400).json({ error: { message: 'Missing url parameter' } });
+  const data = await performBrowseUrlBackend(urlParam.trim());
+  res.json(data);
+});
 
 app.post('/api/chat', chatLimiter, async (req, res) => {
   const defaultGeminiKey = Buffer.from('QVEuQWI4Uk42SWJNYzJJQ0V3OWxnOU50VXV2bjQ5ZDVBeVo0OEtYYktsaHBQRlN6eHE5TkE=', 'base64').toString('utf8');
